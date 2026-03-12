@@ -178,15 +178,23 @@ def _color_for_utilization(pct: int) -> str:
     return "#FF0000"
 
 
-def _build_awtrix_app(label: str, pct: int) -> dict:
-    color = _color_for_utilization(pct)
-    return {
-        "text": f"{label} {pct}%",
-        "progress": pct,
-        "progressC": color,
-        "progressBC": "#333333",
-        "color": color,
-    }
+def _build_awtrix_combined(five_pct: int, seven_pct: int, extra_pct: int) -> dict:
+    """Build a single AWTRIX app with 3 stacked progress bars (32x8 display).
+
+    Layout (top to bottom):
+      y=0-1  5-hour utilization
+      y=3-4  7-day utilization
+      y=6-7  extra usage utilization
+    """
+    draw = []
+    bars = [(five_pct, 0), (seven_pct, 3), (extra_pct, 6)]
+    for pct, y in bars:
+        color = _color_for_utilization(pct)
+        bar_w = max(1, int(32 * pct / 100)) if pct > 0 else 0
+        draw.append({"df": [0, y, 32, 2, "#333333"]})
+        if bar_w > 0:
+            draw.append({"df": [0, y, bar_w, 2, color]})
+    return {"draw": draw, "lifetime": REFRESH_INTERVAL * 3}
 
 
 def _mqtt_connect():
@@ -214,25 +222,17 @@ def _mqtt_publish(data: dict) -> None:
     if not _mqtt_client:
         return
 
-    five_hour = data.get("five_hour") or {}
-    seven_day = data.get("seven_day") or {}
-    extra = data.get("extra_usage") or {}
+    five_pct = (data.get("five_hour") or {}).get("utilization", 0)
+    seven_pct = (data.get("seven_day") or {}).get("utilization", 0)
+    extra_pct = (data.get("extra_usage") or {}).get("utilization", 0)
 
-    apps = {
-        "claude_5h": _build_awtrix_app("5h", five_hour.get("utilization", 0)),
-        "claude_7d": _build_awtrix_app("7d", seven_day.get("utilization", 0)),
-        "claude_extra": _build_awtrix_app("Ext", extra.get("utilization", 0)),
-    }
+    payload = _build_awtrix_combined(five_pct, seven_pct, extra_pct)
+    topic = f"{AWTRIX_PREFIX}/custom/claude_usage"
+    _mqtt_client.publish(topic, json.dumps(payload), retain=True)
+    log.debug("MQTT published %s: %s", topic, payload)
 
-    for app_name, payload in apps.items():
-        topic = f"{AWTRIX_PREFIX}/custom/{app_name}"
-        _mqtt_client.publish(topic, json.dumps(payload), retain=True)
-        log.debug("MQTT published %s: %s", topic, payload)
-
-    log.info("AWTRIX apps updated (5h=%d%% 7d=%d%% extra=%d%%)",
-             five_hour.get("utilization", 0),
-             seven_day.get("utilization", 0),
-             extra.get("utilization", 0))
+    log.info("AWTRIX app updated (5h=%d%% 7d=%d%% extra=%d%%)",
+             five_pct, seven_pct, extra_pct)
 
 
 # ---------------------------------------------------------------------------
