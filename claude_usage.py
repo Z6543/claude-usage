@@ -34,6 +34,7 @@ BETA_HEADER = "oauth-2025-04-20"
 CREDENTIALS_FILE = Path.home() / ".claude" / ".credentials.json"
 REFRESH_INTERVAL = int(os.environ.get("USAGE_REFRESH_INTERVAL", "60"))  # seconds
 MAX_BACKOFF = 3600  # cap backoff at 1 hour on repeated 429s
+CACHE_FILE = Path(__file__).parent / "usage_cache.json"
 
 # MQTT / AWTRIX 3 settings (all optional — MQTT disabled when MQTT_BROKER is unset)
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
@@ -43,10 +44,10 @@ MQTT_PASS = os.environ.get("MQTT_PASS", "test")
 AWTRIX_PREFIX = os.environ.get("AWTRIX_PREFIX", "awtrix_a05ff4")
 
 _DEFAULT_DATA = {
-    "extra_usage": {"is_enabled": False, "monthly_limit": 40, "used_credits": 20, "utilization": 50},
+    "extra_usage": {"is_enabled": False, "monthly_limit": 40, "used_credits": 35, "utilization": 70},
     "five_hour": {"resets_at": None, "utilization": 23},
     "iguana_necktie": None,
-    "seven_day": {"resets_at": None, "utilization": 67},
+    "seven_day": {"resets_at": None, "utilization": 87},
     "seven_day_cowork": None,
     "seven_day_oauth_apps": None,
     "seven_day_opus": None,
@@ -62,6 +63,34 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 _last_updated: datetime | None = None
 _last_error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Persistent cache
+# ---------------------------------------------------------------------------
+
+
+def _save_cache(data: dict, updated: datetime) -> None:
+    payload = {"last_updated": updated.isoformat(), "data": data}
+    CACHE_FILE.write_text(json.dumps(payload, indent=2))
+
+
+def _load_cache() -> None:
+    global _last_updated
+    if not CACHE_FILE.exists():
+        return
+    try:
+        payload = json.loads(CACHE_FILE.read_text())
+        data = payload.get("data", {})
+        ts = payload.get("last_updated")
+        with _cache_lock:
+            _cache.clear()
+            _cache.update(data)
+            if ts:
+                _last_updated = datetime.fromisoformat(ts)
+        log.info("Loaded cached usage from %s", CACHE_FILE)
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        log.warning("Failed to load cache file: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +282,7 @@ def _refresh_loop() -> None:
                 _last_updated = datetime.now(timezone.utc)
                 _last_error = None
             log.info("Usage cache refreshed (token source: %s)", source)
+            _save_cache(data, _last_updated)
             backoff = REFRESH_INTERVAL
         except urllib.error.HTTPError as exc:
             _last_error = str(exc)
@@ -308,6 +338,7 @@ def health():
 
 
 def main() -> None:
+    _load_cache()
     _mqtt_connect()
 
     t = threading.Thread(target=_refresh_loop, daemon=True, name="usage-refresh")
