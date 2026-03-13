@@ -231,7 +231,7 @@ def _build_awtrix_combined(
     bar_max_w = 32 - bar_x
     draw = []
 
-    mins_text = f"{reset_mins}m" if reset_mins is not None else "--"
+    mins_text = str(reset_mins) if reset_mins is not None else "--"
     mins_color = _color_for_utilization(five_pct)
     draw.append({"dt": [0, 1, mins_text, mins_color]})
 
