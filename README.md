@@ -80,17 +80,29 @@ The server starts on `127.0.0.1:5000` by default, refreshes usage data every 60 
 
 ## AWTRIX 3 integration
 
-Three custom apps are published via MQTT to cycle on the display:
+A single custom app (`claude_usage`) is published via MQTT to `awtrix_a05ff4/custom/claude_usage`.
 
-| App | Topic | Description |
-|-----|-------|-------------|
-| `claude_5h` | `awtrix_a05ff4/custom/claude_5h` | 5-hour utilization with progress bar |
-| `claude_7d` | `awtrix_a05ff4/custom/claude_7d` | 7-day utilization with progress bar |
-| `claude_extra` | `awtrix_a05ff4/custom/claude_extra` | Extra usage credits utilization |
+### Display layout (32x8 pixels)
 
-Each app is color-coded by utilization: green (<50%), yellow (<80%), red (>=80%).
+```
++-------------+-----------------+
+| 142m        | ████████████░░░ |  5-hour utilization
+|             | ██████████░░░░░ |  7-day utilization
+|             | ████░░░░░░░░░░░ |  extra usage
++-------------+-----------------+
+  x=0..13         x=15..31
+```
 
-Apps are published with `retain=True`, so the AWTRIX display picks them up even if it reconnects after the server. When the API is unreachable, default values are published to keep the display active.
+- **Left side**: minutes remaining until the 5-hour limit resets
+- **Right side**: 3 stacked progress bars (5-hour, 7-day, extra usage)
+
+Each bar is color-coded by utilization: green (<50%), yellow (<80%), red (>=80%). The reset timer text matches the 5-hour bar color.
+
+The app is published with `retain=True`, so the AWTRIX display picks it up even if it reconnects after the server. When the API is unreachable, the last known values from `usage_cache.json` are used.
+
+### Persistent cache
+
+On each successful API fetch, usage data is saved to `usage_cache.json` next to the script. On startup, this file is loaded so the display shows real values immediately instead of defaults.
 
 ### Showing only Claude usage on AWTRIX
 

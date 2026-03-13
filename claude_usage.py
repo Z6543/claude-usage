@@ -207,22 +207,41 @@ def _color_for_utilization(pct: int) -> str:
     return "#FF0000"
 
 
-def _build_awtrix_combined(five_pct: int, seven_pct: int, extra_pct: int) -> dict:
-    """Build a single AWTRIX app with 3 stacked progress bars (32x8 display).
+def _minutes_remaining(resets_at: str | None) -> int | None:
+    if not resets_at:
+        return None
+    try:
+        reset_time = datetime.fromisoformat(resets_at)
+        delta = reset_time - datetime.now(timezone.utc)
+        return max(0, int(delta.total_seconds() / 60))
+    except (ValueError, TypeError):
+        return None
 
-    Layout (top to bottom):
-      y=0-1  5-hour utilization
-      y=3-4  7-day utilization
-      y=6-7  extra usage utilization
+
+def _build_awtrix_combined(
+    five_pct: int, seven_pct: int, extra_pct: int, reset_mins: int | None,
+) -> dict:
+    """Build a single AWTRIX app with reset timer + 3 progress bars (32x8 display).
+
+    Layout (left to right):
+      x=0..13   minutes remaining until 5h reset (text)
+      x=15..31  3 stacked progress bars (top: 5h, mid: 7d, bottom: extra)
     """
+    bar_x = 15
+    bar_max_w = 32 - bar_x
     draw = []
+
+    mins_text = f"{reset_mins}m" if reset_mins is not None else "--"
+    mins_color = _color_for_utilization(five_pct)
+    draw.append({"dt": [0, 1, mins_text, mins_color]})
+
     bars = [(five_pct, 0), (seven_pct, 3), (extra_pct, 6)]
     for pct, y in bars:
         color = _color_for_utilization(pct)
-        bar_w = max(1, int(32 * pct / 100)) if pct > 0 else 0
-        draw.append({"df": [0, y, 32, 2, "#333333"]})
+        bar_w = max(1, int(bar_max_w * pct / 100)) if pct > 0 else 0
+        draw.append({"df": [bar_x, y, bar_max_w, 2, "#333333"]})
         if bar_w > 0:
-            draw.append({"df": [0, y, bar_w, 2, color]})
+            draw.append({"df": [bar_x, y, bar_w, 2, color]})
     return {"draw": draw, "lifetime": REFRESH_INTERVAL * 3}
 
 
@@ -251,11 +270,13 @@ def _mqtt_publish(data: dict) -> None:
     if not _mqtt_client:
         return
 
-    five_pct = (data.get("five_hour") or {}).get("utilization", 0)
+    five_hour = data.get("five_hour") or {}
+    five_pct = five_hour.get("utilization", 0)
     seven_pct = (data.get("seven_day") or {}).get("utilization", 0)
     extra_pct = (data.get("extra_usage") or {}).get("utilization", 0)
+    reset_mins = _minutes_remaining(five_hour.get("resets_at"))
 
-    payload = _build_awtrix_combined(five_pct, seven_pct, extra_pct)
+    payload = _build_awtrix_combined(five_pct, seven_pct, extra_pct, reset_mins)
     topic = f"{AWTRIX_PREFIX}/custom/claude_usage"
     _mqtt_client.publish(topic, json.dumps(payload), retain=True)
     log.debug("MQTT published %s: %s", topic, payload)
