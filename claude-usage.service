@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Code Usage Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/claude-usage
+ExecStart=/home/ubuntu/claude-usage/.venv/bin/python3 claude_usage.py
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=-%h/claude-usage/.env
+
+[Install]
+WantedBy=default.target
