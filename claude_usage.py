@@ -271,9 +271,9 @@ def _mqtt_publish(data: dict) -> None:
         return
 
     five_hour = data.get("five_hour") or {}
-    five_pct = five_hour.get("utilization", 0)
-    seven_pct = (data.get("seven_day") or {}).get("utilization", 0)
-    extra_pct = (data.get("extra_usage") or {}).get("utilization", 0)
+    five_pct = five_hour.get("utilization") or 0
+    seven_pct = (data.get("seven_day") or {}).get("utilization") or 0
+    extra_pct = (data.get("extra_usage") or {}).get("utilization") or 0
     reset_mins = _minutes_remaining(five_hour.get("resets_at"))
 
     payload = _build_awtrix_combined(five_pct, seven_pct, extra_pct, reset_mins)
