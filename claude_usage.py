@@ -213,9 +213,29 @@ def _minutes_remaining(resets_at: str | None) -> int | None:
     try:
         reset_time = datetime.fromisoformat(resets_at)
         delta = reset_time - datetime.now(timezone.utc)
-        return max(0, int(delta.total_seconds() / 60))
+        remaining = delta.total_seconds()
+        return max(0, int(remaining / 60)) if remaining > 0 else 0
     except (ValueError, TypeError):
         return None
+
+
+def _check_reset_expired() -> None:
+    """If the 5h reset time has passed, zero out five_hour utilization."""
+    global _last_updated
+    with _cache_lock:
+        five_hour = _cache.get("five_hour")
+        if not five_hour or not five_hour.get("resets_at"):
+            return
+        try:
+            reset_time = datetime.fromisoformat(five_hour["resets_at"])
+        except (ValueError, TypeError):
+            return
+        if datetime.now(timezone.utc) >= reset_time:
+            five_hour["utilization"] = 0
+            five_hour["resets_at"] = None
+            _last_updated = datetime.now(timezone.utc)
+            log.info("5h reset timer expired — utilization zeroed")
+            _save_cache(dict(_cache), _last_updated)
 
 
 def _build_awtrix_combined(
@@ -316,6 +336,7 @@ def _refresh_loop() -> None:
             _last_error = str(exc)
             log.error("Failed to refresh usage: %s", exc)
 
+        _check_reset_expired()
         with _cache_lock:
             publish_data = dict(_cache) if _cache else _DEFAULT_DATA
         _mqtt_publish(publish_data)
